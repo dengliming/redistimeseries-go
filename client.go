@@ -134,7 +134,12 @@ func ParseInfo(result interface{}, err error) (info KeyInfo, outErr error) {
 		case "maxSamplesPerChunk":
 			info.MaxSamplesPerChunk, err = redis.Int64(values[i+1], nil)
 		case "labels":
-			info.Labels, err = redis.StringMap(values[i+1], nil)
+			labels, err := redis.Values(values[i+1], nil)
+			for j := 0; j < len(labels); j += 2 {
+				labelKey, err := redis.String(labels[j], err)
+				labelValue, err := redis.String(labels[j+1], err)
+				info.Labels[labelKey] = labelValue
+			}
 		case "lastTimestamp":
 			info.LastTimestamp, err = redis.Int64(values[i+1], nil)
 		}
