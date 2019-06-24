@@ -51,10 +51,19 @@ func formatSec(dur time.Duration) int64 {
 }
 
 // CreateKey create a new time-series
-func (client *Client) CreateKey(key string, retentionTime time.Duration) (err error) {
+func (client *Client) CreateKey(key string, retentionTime time.Duration, labels map[string]string) (err error) {
+	args := make([]interface{}, 0, len(labels)+3)
+	args = append(args, key)
+	args = append(args, "RETENTION")
+	args = append(args, formatSec(retentionTime))
+	args = append(args, "LABELS")
+	for key, value := range labels {
+		args = append(args, key)
+		args = append(args, value)
+	}
 	conn := client.Pool.Get()
 	defer conn.Close()
-	_, err = conn.Do("TS.CREATE", key, "RETENTION", formatSec(retentionTime))
+	_, err = conn.Do("TS.CREATE", args... )
 	return err
 }
 
@@ -69,6 +78,7 @@ type KeyInfo struct {
 	MaxSamplesPerChunk int64
 	LastTimestamp      int64
 	RetentionTime      int64
+	Labels             map[string]string
 	Rules              []Rule
 }
 
@@ -123,6 +133,8 @@ func ParseInfo(result interface{}, err error) (info KeyInfo, outErr error) {
 			info.ChunkCount, err = redis.Int64(values[i+1], nil)
 		case "maxSamplesPerChunk":
 			info.MaxSamplesPerChunk, err = redis.Int64(values[i+1], nil)
+		case "labels":
+			info.Labels, err = redis.StringMap(values[i+1], nil)
 		case "lastTimestamp":
 			info.LastTimestamp, err = redis.Int64(values[i+1], nil)
 		}
@@ -221,7 +233,7 @@ func strToFloat(inputString string) (float64, error) {
 func (client *Client) Add(key string, timestamp int64, value float64) (storedTimestamp int64, err error) {
 	conn := client.Pool.Get()
 	defer conn.Close()
-	return redis.Int64( conn.Do("TS.ADD", key, timestamp, floatToStr(value)))
+	return redis.Int64(conn.Do("TS.ADD", key, timestamp, floatToStr(value)))
 }
 
 type DataPoint struct {
@@ -289,7 +301,7 @@ func (client *Client) AggRange(key string, fromTimestamp int64, toTimestamp int6
 	bucketSizeSec int) (dataPoints []DataPoint, err error) {
 	conn := client.Pool.Get()
 	defer conn.Close()
-	info, err := conn.Do("TS.RANGE", key, strconv.FormatInt(fromTimestamp, 10), strconv.FormatInt(toTimestamp, 10), 
+	info, err := conn.Do("TS.RANGE", key, strconv.FormatInt(fromTimestamp, 10), strconv.FormatInt(toTimestamp, 10),
 		"AGGREGATION", aggType.String(), bucketSizeSec)
 	if err != nil {
 		return nil, err

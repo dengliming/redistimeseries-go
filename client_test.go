@@ -11,12 +11,13 @@ var client = NewClient("localhost:6379", "test_client", MakeStringPtr("SUPERSECR
 
 var defaultDuration, _ = time.ParseDuration("1h")
 var tooShortDuration, _ = time.ParseDuration("10ms")
+var emptyMap = map[string]string{}
 
 func TestCreateKey(t *testing.T) {
-	err := client.CreateKey("test_CreateKey", defaultDuration)
+	err := client.CreateKey("test_CreateKey", defaultDuration, emptyMap)
 	assert.Equal(t, nil, err)
-	
-	err = client.CreateKey("test_CreateKey", tooShortDuration)
+
+	err = client.CreateKey("test_CreateKey", tooShortDuration, emptyMap)
 	assert.NotNil(t, err)
 }
 
@@ -24,11 +25,11 @@ func TestCreateRule(t *testing.T) {
 	var destinationKey string
 	var err error
 	key := "test_CreateRule"
-	client.CreateKey(key, defaultDuration)
+	client.CreateKey(key, defaultDuration, emptyMap)
 	var found bool
 	for aggType, aggString := range aggToString {
 		destinationKey = "test_CreateRule_dest" + aggString
-		client.CreateKey(destinationKey, defaultDuration)
+		client.CreateKey(destinationKey, defaultDuration, emptyMap)
 		err = client.CreateRule(key, aggType, 100, destinationKey)
 		assert.Equal(t, nil, err)
 		info, _ := client.Info(key)
@@ -45,13 +46,14 @@ func TestCreateRule(t *testing.T) {
 func TestClientInfo(t *testing.T) {
 	key := "test_INFO"
 	destKey := "test_INFO_dest"
-	client.CreateKey(key, defaultDuration)
-	client.CreateKey(destKey, defaultDuration)
+	labels := map[string]string{"There": "is", "no": "spoon"}
+	client.CreateKey(key, defaultDuration, labels)
+	client.CreateKey(destKey, defaultDuration, emptyMap)
 	client.CreateRule(key, AvgAggregation, 100, destKey)
 	res, err := client.Info(key)
 	assert.Equal(t, nil, err)
 	expected := KeyInfo{ChunkCount: 1,
-		MaxSamplesPerChunk: 360, LastTimestamp: 0, RetentionTime: 3600,
+		MaxSamplesPerChunk: 360, LastTimestamp: 0, RetentionTime: 3600, Labels: labels,
 		Rules: []Rule{{DestKey: destKey, BucketSizeSec: 100, AggType: AvgAggregation}}}
 	assert.Equal(t, expected, res)
 }
@@ -59,8 +61,8 @@ func TestClientInfo(t *testing.T) {
 func TestDeleteRule(t *testing.T) {
 	key := "test_DELETE"
 	destKey := "test_DELETE_dest"
-	client.CreateKey(key, defaultDuration)
-	client.CreateKey(destKey, defaultDuration)
+	client.CreateKey(key, defaultDuration, emptyMap)
+	client.CreateKey(destKey, defaultDuration, emptyMap)
 	client.CreateRule(key, AvgAggregation, 100, destKey)
 	err := client.DeleteRule(key, destKey)
 	assert.Equal(t, nil, err)
@@ -74,7 +76,7 @@ func TestAdd(t *testing.T) {
 	key := "test_ADD"
 	now := time.Now().Unix()
 	PI := 3.14159265359
-	client.CreateKey(key, defaultDuration)
+	client.CreateKey(key, defaultDuration, emptyMap)
 	storedTimestamp, err := client.Add(key, now, PI)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, now, storedTimestamp)
@@ -84,7 +86,7 @@ func TestAdd(t *testing.T) {
 
 func TestClient_Range(t *testing.T) {
 	key := "test_Range"
-	client.CreateKey(key, defaultDuration)
+	client.CreateKey(key, defaultDuration, emptyMap)
 	now := time.Now().Unix()
 	pi := 3.14159265359
 	halfPi := pi / 2
@@ -106,14 +108,14 @@ func TestClient_Range(t *testing.T) {
 	assert.Equal(t, nil, err)
 	expected = []DataPoint{}
 	assert.Equal(t, expected, dataPoints)
-	
-	_, err = client.Range(key + "1", now-1, now)
+
+	_, err = client.Range(key+"1", now-1, now)
 	assert.NotNil(t, err)
 }
 
 func TestClient_AggRange(t *testing.T) {
 	key := "test_aggRange"
-	client.CreateKey(key, defaultDuration)
+	client.CreateKey(key, defaultDuration, emptyMap)
 	now := int64(1552839965)
 	value := 5.0
 	value2 := 6.0
@@ -124,7 +126,7 @@ func TestClient_AggRange(t *testing.T) {
 	dataPoints, err := client.AggRange(key, now-60, now, CountAggregation, 10)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, 2.0, dataPoints[0].Value)
-	
+
 	_, err = client.AggRange(key+"1", now-60, now, CountAggregation, 10)
 	assert.NotNil(t, err)
 
