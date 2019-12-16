@@ -75,18 +75,18 @@ func (client *Client) CreateKey(key string, retentionTime time.Duration) (err er
 	conn := client.Pool.Get()
 	defer conn.Close()
 	_, err = conn.Do("TS.CREATE", key, "RETENTION", formatMilliSec(retentionTime))
-	return err
+	return
 }
 
-func (client *Client) CreateKeyWithOptions(key string, options CreateOptions) (err error) {
+func (client *Client) CreateKeyWithOptions(key string, options CreateOptions) (result string, err error) {
 	conn := client.Pool.Get()
 	defer conn.Close()
 	
 	args := []interface{}{key}
 	args = options.Append(args)
 
-	_, err = conn.Do("TS.CREATE", args...)
-	return err  
+	result, err = redis.String(conn.Do("TS.CREATE", args...))
+	return
 }
 
 type Rule struct {
@@ -261,14 +261,14 @@ func strToFloat(inputString string) (float64, error) {
 // timestamp - time of value
 // value - value
 // options - define options for create key on add 
-func (client *Client) AddWithOptions(key string, timestamp int64, value float64, options CreateOptions) (err error) {
+func (client *Client) AddWithOptions(key string, timestamp int64, value float64, options CreateOptions) (storedTimestamp int64, err error) {
 	conn := client.Pool.Get()
 	defer conn.Close()
 	
 	args := []interface{}{key, timestamp, floatToStr(value)}
 	args = options.Append(args)
-	_, err = conn.Do("TS.ADD", args...)
-	return err
+	storedTimestamp, err = redis.Int64( conn.Do("TS.ADD", args...) )
+	return
 }
 
 func (client *Client) Add(key string, timestamp int64, value float64) (storedTimestamp int64, err error) {
@@ -283,11 +283,11 @@ func (client *Client) Add(key string, timestamp int64, value float64) (storedTim
 // timestamp - time of value
 // value - value
 // duration - value
-func (client *Client) AddWithRetention(key string, timestamp int64, value float64, duration int64) (err error) {
+func (client *Client) AddWithRetention(key string, timestamp int64, value float64, duration int64) (storedTimestamp int64, err error) {
 	conn := client.Pool.Get()
 	defer conn.Close()
-	_, err = conn.Do("TS.ADD", key, timestamp, floatToStr(value), "RETENTION", strconv.FormatInt(duration, 10))
-	return err
+	storedTimestamp, err = redis.Int64( conn.Do("TS.ADD", key, timestamp, floatToStr(value), "RETENTION", strconv.FormatInt(duration, 10)))
+	return storedTimestamp, err
 }
 
 type DataPoint struct {

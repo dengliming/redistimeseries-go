@@ -1,16 +1,31 @@
 package redis_timeseries_go
 
 import (
+	"github.com/gomodule/redigo/redis"
+	"github.com/stretchr/testify/assert"
+	"os"
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/gomodule/redigo/redis"
-	"github.com/stretchr/testify/assert"
 )
 
-var client = NewClient("localhost:6379", "test_client", MakeStringPtr("SUPERSECRET"))
-var _ = client.FlushAll()
+func createClient() *Client {
+	valueh, exists := os.LookupEnv("REDISTIMESERIES_TEST_HOST")
+	host := "localhost:6379"
+	if exists && valueh != "" {
+		host = valueh
+	}
+	valuep, exists := os.LookupEnv("REDISTIMESERIES_TEST_PASSWORD")
+	password := "SUPERSECRET"
+	var ptr *string = nil
+	if exists {
+		password = valuep
+	}
+	if len(password) > 0 {
+		ptr = MakeStringPtr(password)
+	}
+	return NewClient(host, "test_client", ptr)
+}
 
 var defaultDuration, _ = time.ParseDuration("1h")
 var tooShortDuration, _ = time.ParseDuration("10ms")
@@ -22,33 +37,62 @@ func (client *Client) FlushAll() (err error) {
 	return err
 }
 
+func init() {
+	client := createClient()
+	client.FlushAll()
+}
+
 func TestCreateKey(t *testing.T) {
+	client := createClient()
 	err := client.CreateKey("test_CreateKey", defaultDuration)
-	assert.Equal(t, nil, err)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 
 	labels := map[string]string{
 		"cpu":     "cpu1",
 		"country": "IT",
 	}
-	err = client.CreateKeyWithOptions("test_CreateKeyLabels", CreateOptions{RetentionSecs: defaultDuration, Labels: labels})
-	assert.Equal(t, nil, err)
+	_, err = client.CreateKeyWithOptions("test_CreateKeyLabels", CreateOptions{RetentionSecs: defaultDuration, Labels: labels})
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 
 	err = client.CreateKey("test_CreateKey", tooShortDuration)
 	assert.NotNil(t, err)
 }
 
 func TestCreateRule(t *testing.T) {
+	client := createClient()
 	var destinationKey string
 	var err error
 	key := "test_CreateRule"
-	client.CreateKey(key, defaultDuration)
+	err = client.CreateKey(key, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
 	var found bool
 	for aggType, aggString := range aggToString {
 		destinationKey = "test_CreateRule_dest" + aggString
-		client.CreateKey(destinationKey, defaultDuration)
+		err = client.CreateKey(destinationKey, defaultDuration)
+		if err != nil {
+			t.Error(err)
+			t.FailNow()
+		}
 		err = client.CreateRule(key, aggType, 100, destinationKey)
-		assert.Equal(t, nil, err)
-		info, _ := client.Info(key)
+		if err != nil {
+			t.Error(err)
+			t.FailNow()
+		}
+		info, err := client.Info(key)
+		if err != nil {
+			t.Error(err)
+			t.FailNow()
+		}
 		found = false
 		for _, rule := range info.Rules {
 			if aggType == rule.AggType {
@@ -60,13 +104,29 @@ func TestCreateRule(t *testing.T) {
 }
 
 func TestClientInfo(t *testing.T) {
+	client := createClient()
 	key := "test_INFO"
 	destKey := "test_INFO_dest"
-	client.CreateKey(key, defaultDuration)
-	client.CreateKey(destKey, defaultDuration)
-	client.CreateRule(key, AvgAggregation, 100, destKey)
+	err := client.CreateKey(key, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	err = client.CreateKey(destKey, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	err = client.CreateRule(key, AvgAggregation, 100, destKey)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	res, err := client.Info(key)
-	assert.Equal(t, nil, err)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	expected := KeyInfo{ChunkCount: 1,
 		MaxSamplesPerChunk: 256, LastTimestamp: 0, RetentionTime: 3600000,
 		Rules: []Rule{{DestKey: destKey, BucketSizeSec: 100, AggType: AvgAggregation},
@@ -77,66 +137,133 @@ func TestClientInfo(t *testing.T) {
 }
 
 func TestDeleteRule(t *testing.T) {
+	client := createClient()
 	key := "test_DELETE"
 	destKey := "test_DELETE_dest"
-	client.CreateKey(key, defaultDuration)
-	client.CreateKey(destKey, defaultDuration)
-	client.CreateRule(key, AvgAggregation, 100, destKey)
-	err := client.DeleteRule(key, destKey)
+	err := client.CreateKey(key, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	err = client.CreateKey(destKey, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	err = client.CreateRule(key, AvgAggregation, 100, destKey)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	err = client.DeleteRule(key, destKey)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	assert.Equal(t, nil, err)
-	info, _ := client.Info(key)
+	info, err := client.Info(key)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	assert.Equal(t, 0, len(info.Rules))
 	err = client.DeleteRule(key, destKey)
 	assert.Equal(t, redis.Error("TSDB: compaction rule does not exist"), err)
 }
 
 func TestAdd(t *testing.T) {
+	client := createClient()
 	key := "test_ADD"
 	now := time.Now().Unix()
 	PI := 3.14159265359
-	client.CreateKey(key, defaultDuration)
+	err := client.CreateKey(key, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	storedTimestamp, err := client.Add(key, now, PI)
-	assert.Equal(t, nil, err)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	assert.Equal(t, now, storedTimestamp)
-	info, _ := client.Info(key)
+	info, err := client.Info(key)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	assert.Equal(t, now, info.LastTimestamp)
 }
 
 func TestAddWithRetention(t *testing.T) {
+	client := createClient()
 	// There is no way I know of yet that allows me to query the retention for a single datapoint
 	// this test should probably be improved
 	key := "test_ADDWITHRETENTION"
 	now := time.Now().Unix()
 	PI := 3.14159265359
-	client.CreateKey(key, defaultDuration)
-	err := client.AddWithRetention(key, now, PI, 2112)
-	assert.Equal(t, nil, err)
-	info, _ := client.Info(key)
+	err := client.CreateKey(key, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	_, err = client.AddWithRetention(key, now, PI, 2112)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	info, err := client.Info(key)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	assert.Equal(t, now, info.LastTimestamp)
 }
 
 func TestClient_Range(t *testing.T) {
+	client := createClient()
 	key := "test_Range"
-	client.CreateKey(key, defaultDuration)
+	err := client.CreateKey(key, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	now := time.Now().Unix()
 	pi := 3.14159265359
 	halfPi := pi / 2
 
-	client.Add(key, now-2, halfPi)
-	client.Add(key, now, pi)
+	_, err = client.Add(key, now-2, halfPi)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	_, err = client.Add(key, now, pi)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 
 	dataPoints, err := client.Range(key, now-1, now)
-	assert.Equal(t, nil, err)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	expected := []DataPoint{{Timestamp: now, Value: pi}}
 	assert.Equal(t, expected, dataPoints)
 
 	dataPoints, err = client.Range(key, now-2, now)
-	assert.Equal(t, nil, err)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	expected = []DataPoint{{Timestamp: now - 2, Value: halfPi}, {Timestamp: now, Value: pi}}
 	assert.Equal(t, expected, dataPoints)
 
 	dataPoints, err = client.Range(key, now-4, now-3)
-	assert.Equal(t, nil, err)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	expected = []DataPoint{}
 	assert.Equal(t, expected, dataPoints)
 
@@ -145,17 +272,33 @@ func TestClient_Range(t *testing.T) {
 }
 
 func TestClient_AggRange(t *testing.T) {
+	client := createClient()
 	key := "test_aggRange"
-	client.CreateKey(key, defaultDuration)
+	err := client.CreateKey(key, defaultDuration)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	now := int64(1552839965)
 	value := 5.0
 	value2 := 6.0
 
-	client.Add(key, now-2, value)
-	client.Add(key, now-1, value2)
+	_, err = client.Add(key, now-2, value)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	_, err = client.Add(key, now-1, value2)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 
 	dataPoints, err := client.AggRange(key, now-60, now, CountAggregation, 10)
-	assert.Equal(t, nil, err)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	assert.Equal(t, 2.0, dataPoints[0].Value)
 
 	_, err = client.AggRange(key+"1", now-60, now, CountAggregation, 10)
@@ -163,26 +306,50 @@ func TestClient_AggRange(t *testing.T) {
 }
 
 func TestClient_AggMultiRange(t *testing.T) {
+	client := createClient()
 	key := "test_aggMultiRange1"
 	labels := map[string]string{
 		"cpu":     "cpu1",
 		"country": "US",
 	}
 	now := int64(1552839965)
-	client.AddWithOptions(key, now-2, 5.0, CreateOptions{RetentionSecs: defaultDuration, Labels: labels})
-	client.AddWithOptions(key, now-1, 6.0, CreateOptions{RetentionSecs: defaultDuration, Labels: labels})
+	_, err := client.AddWithOptions(key, now-2, 5.0, CreateOptions{RetentionSecs: defaultDuration, Labels: labels})
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	_, err = client.AddWithOptions(key, now-1, 6.0, CreateOptions{RetentionSecs: defaultDuration, Labels: labels})
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 
 	key2 := "test_aggMultiRange2"
 	labels2 := map[string]string{
 		"cpu":     "cpu2",
 		"country": "US",
 	}
-	client.CreateKeyWithOptions(key2, CreateOptions{RetentionSecs: defaultDuration, Labels: labels2})
-	client.AddWithOptions(key2, now-2, 4.0, CreateOptions{})
-	client.Add(key2, now-1, 8.0)
+	_, err = client.CreateKeyWithOptions(key2, CreateOptions{RetentionSecs: defaultDuration, Labels: labels2})
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	_, err = client.AddWithOptions(key2, now-2, 4.0, CreateOptions{})
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	_, err = client.Add(key2, now-1, 8.0)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 
 	ranges, err := client.AggMultiRange(now-60, now, CountAggregation, 10, "country=US")
-	assert.Equal(t, nil, err)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 	assert.Equal(t, 2, len(ranges))
 	assert.Equal(t, 2.0, ranges[0].DataPoints[0].Value)
 
@@ -201,13 +368,13 @@ func TestParseLabels(t *testing.T) {
 		wantLabels map[string]string
 		wantErr    bool
 	}{
-		{ "correctInput",
-			args{  []interface{}{[]interface{}{[]byte("hostname"), []byte("host_3")}, []interface{}{[]byte("region"), []byte("us-west-2")}} },
-			map[string]string{"hostname": "host_3","region": "us-west-2",},
+		{"correctInput",
+			args{[]interface{}{[]interface{}{[]byte("hostname"), []byte("host_3")}, []interface{}{[]byte("region"), []byte("us-west-2")}}},
+			map[string]string{"hostname": "host_3", "region": "us-west-2",},
 			false,
 		},
-		{ "IncorrectInput",
-			args{  []interface{}{[]interface{}{[]byte("hostname"), []byte("host_3")}, []interface{}{[]byte("region"), }} },
+		{"IncorrectInput",
+			args{[]interface{}{[]interface{}{[]byte("hostname"), []byte("host_3")}, []interface{}{[]byte("region"),}}},
 			nil,
 			true,
 		},

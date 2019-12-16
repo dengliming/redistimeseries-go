@@ -18,15 +18,55 @@ jobs:
       - run: go get -v -t -d ./...
 
       #run tests with coverage
-      - run: go test -v -race -coverprofile=coverage.txt -covermode=atomic
+      - run: export REDISTIMESERIES_TEST_PASSWORD="SUPERSECRET" && go test -v -race -coverprofile=coverage.txt -covermode=atomic
       - run: go tool cover -func=coverage.txt
       - run: bash <(curl -s https://codecov.io/bash) -t ${CODECOV_TOKEN}
+
+  test-oss-cluster:
+    working_directory: /go/src/github.com/RedisTimeSeries/redistimeseries-go
+    machine:
+      enabled: true
+    steps:
+      - checkout
+      - run:
+          name: Get Get
+          command: |
+            go get -v -t -d ./...
+      - run:
+          name: Get Redis
+          command: |
+            .circleci/ci_get_deps_redis.sh
+      - run:
+          name: Get RLTest
+          command: |
+            .circleci/ci_get_deps_RLTest.sh
+      - run:
+          name: Get RedisTimeSeries
+          command: |
+            .circleci/ci_get_deps_redistimeseries.sh
+      - run:
+          name: Start OSS Cluster
+          command: |
+            .circleci/ci_start_redis_cluster_oss.sh
+          no_output_timeout: 5m
+      - run:
+          name: Go Test with OSS Cluster
+          command: |
+            export REDISTIMESERIES_TEST_HOST=localhost:12000,locahost:12002,localhost:12004 \
+            export REDISTIMESERIES_TEST_PASSWORD="" \
+            go test -v -race -coverprofile=coverage.txt -covermode=atomic
+      - run:
+          name: Stop OSS Cluster
+          command: |
+            .circleci/ci_stop_redis_cluster_oss.sh
+          no_output_timeout: 1m
 
 workflows:
   version: 2
   commit:
     jobs:
       - build
+      - test-oss-cluster
   nightly:
     triggers:
       - schedule:
@@ -37,3 +77,4 @@ workflows:
                 - master
     jobs:
       - build
+      - test-oss-cluster
