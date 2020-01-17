@@ -115,13 +115,17 @@ func TestClientInfo(t *testing.T) {
 	client.CreateRule(key, AvgAggregation, 100, destKey)
 	res, err := client.Info(key)
 	assert.Equal(t, nil, err)
-	expected := KeyInfo{ChunkCount: 1,
+	expected := KeyInfo{ChunkCount: 1, MemoryUsage: 4240,
 		MaxSamplesPerChunk: 256, LastTimestamp: 0, RetentionTime: 3600000,
 		Rules: []Rule{{DestKey: destKey, BucketSizeSec: 100, AggType: AvgAggregation},
 		},
 		Labels: map[string]string{},
 	}
 	assert.Equal(t, expected, res)
+
+	res1, err1 := client.Info(destKey)
+	assert.Equal(t, nil, err1)
+	assert.Equal(t, key, res1.SourceKey)
 }
 
 func TestDeleteRule(t *testing.T) {

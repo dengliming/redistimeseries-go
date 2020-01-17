@@ -153,10 +153,14 @@ type Rule struct {
 }
 
 type KeyInfo struct {
+	TotalSamples	   int64
+	MemoryUsage		   int64
+	FirstTimestamp	   int64
+	LastTimestamp      int64
 	ChunkCount         int64
 	MaxSamplesPerChunk int64
-	LastTimestamp      int64
 	RetentionTime      int64
+	SourceKey	       string
 	Rules              []Rule
 	Labels             map[string]string
 }
@@ -216,8 +220,22 @@ func ParseInfo(result interface{}, err error) (info KeyInfo, outErr error) {
 			info.LastTimestamp, err = redis.Int64(values[i+1], nil)
 		case "labels":
 			info.Labels, err = ParseLabels(values[i+1])
+		case "totalSamples":
+			info.TotalSamples, err = redis.Int64(values[i+1], nil)
+		case "firstTimestamp":
+			info.FirstTimestamp, err = redis.Int64(values[i+1], nil)
+		case "memoryUsage":
+			info.MemoryUsage, err = redis.Int64(values[i+1], nil)
+		case "sourceKey":
+			info.SourceKey, err = redis.String(values[i+1], nil)
+			if err.Error() == "redigo: nil returned" { 
+				var temperr error = nil
+				err = temperr
+			}		
 		}
 		if err != nil {
+			fmt.Printf("%s\n", key)
+			fmt.Println(err)
 			return KeyInfo{}, err
 		}
 	}
